@@ -1,0 +1,22 @@
+#!/usr/bin/env ruby
+
+require 'distributed_file_server'
+require 'optparse'
+
+options = {}
+
+opt_parser = OptionParser.new do |opts|
+  opts.banner = "Usage: dfs [options]"
+
+  opts.on("--port N", Integer, "Port for server to listen on") do |port|
+    options[:port] = port
+  end
+
+  opts.on("--peers host1:port1,host2:port2,...,hostn:portn", Array, "List of peer nodes") do |peers|
+    options[:peers] = peers
+  end
+end
+
+opt_parser.parse!
+
+DistributedFileServer::Server.run options

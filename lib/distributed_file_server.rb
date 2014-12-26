@@ -15,6 +15,7 @@ module DistributedFileServer
       @@port = options[:port]
       @@name = options[:name]
       @@directory = options[:directory]
+      @@temp_folder = options[:folder]
       puts "Listening on port: #{options[:port]}"
 
       self.announce! @@directory
@@ -38,6 +39,12 @@ module DistributedFileServer
       unless header.split()[0] == 'PONG'
         @@directory = nil
       end
+    end
+
+    def self.register(filename)
+     sock = TCPSocket.new @@directory.split(":")[0], @@directory.split(":")[1].to_i
+     sock.puts "REGISTER ME=#{@@name} FILE=#{filename}"
+     sock.close
     end
 
     def self.get_file_from_peer(peer, file_name)
@@ -104,7 +111,7 @@ module DistributedFileServer
           puts "Replcating #{file_name} to #{peer}"
           ph = peer.split(':')[0]
           pp = peer.split(':')[1].to_i
-          TCPSocket.new ph, pp do |peer_sock|
+          TCPSocket.open ph, pp do |peer_sock|
             peer_sock.puts "REPLICATE FILE=#{file_name} CONTENT_LENGTH=#{filesize}"
             peer_sock.write file_contents
           end
@@ -179,11 +186,13 @@ module DistributedFileServer
           if File.exists? local_file_name
             File.delete local_file_name
           end
+          puts "Invalidated #{file_name} as per request"
           client.puts "INVALIDATED"
         when "REPLICATE"
           content_length = request.split()[2].split('=')[1]
           contents = client.read(content_length.to_i)
           File.open(local_file_name, "w") { |f| f.write contents }
+          self.register file_name
 
         puts "Request handled, done."
         $stdout.flush  

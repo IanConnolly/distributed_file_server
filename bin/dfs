@@ -12,6 +12,11 @@ opt_parser = OptionParser.new do |opts|
     options[:port] = port
   end
 
+  opts.on("--name id", String, "Name for server") do |name|
+    options[:name] = name
+  end
+
+
   opts.on("--directory host:port", String, "Directory server") do |dir|
     options[:directory] = dir
   end

@@ -30,9 +30,9 @@ module DistributedFileServer
       end
     end
 
-    def self.announce(directory)
+    def self.announce!(directory)
       sock = TCPSocket.new @@directory.split(":")[0], @@directory.split(":")[1].to_i
-      sock.write "PING ME=#{@@name} HOST=#{@@host} PORT=#{@@port}"
+      sock.puts "PING ME=#{@@name} HOST=#{@@host} PORT=#{@@port}"
       header = sock.gets
       
       unless header.split()[0] == 'PONG'
@@ -42,7 +42,7 @@ module DistributedFileServer
 
     def self.get_file_from_peer(peer, file_name)
       sock = TCPSocket.new peer.split(":")[0], peer.split(":")[1].to_i
-      sock.write "REQUEST FILE=#{file_name}"
+      sock.puts "REQUEST FILE=#{file_name}"
 
       header = sock.gets
       if header.split()[0] == 'ERROR'
@@ -60,7 +60,7 @@ module DistributedFileServer
       puts "Searching #{@@directory} for peers with file #{file_name}"
 
       sock = TCPSocket.new @@directory.split(":")[0], @@directory.split(":")[1].to_i
-      sock.write "SEARCH ME=#{@@name} FILE=#{file_name}"
+      sock.puts "SEARCH ME=#{@@name} FILE=#{file_name}"
 
       header = sock.gets
       if header.split()[0] == 'ERROR'
@@ -77,7 +77,7 @@ module DistributedFileServer
 
       puts "Invalidating peers copy of #{file_name} via #{@@directory}"
       sock = TCPSocket.new @@directory.split(":")[0], @@directory.split(":")[1].to_i
-      sock.write "INVALIDATE ME=#{@@name} FILE=#{file_name}"
+      sock.puts "INVALIDATE ME=#{@@name} FILE=#{file_name}"
       sock.close
     end
 
@@ -94,18 +94,23 @@ module DistributedFileServer
       filesize = File.size local_file_name
       file_contents = File.read local_file_name
       
-      sock.write "REPLICATE ME=#{@@name} FILE=#{file_name}"
+      sock.puts "REPLICATE ME=#{@@name} FILE=#{file_name}"
       reply = sock.gets
       sock.close
 
-      peers = reply.split()[1].split('=')[1].split(',')
-      peers.each do |peer|
-        ph = peer.split(':')[0]
-        pp = peer.split(':')[1].to_i
-        TCPSocket.new ph, pp do |peer_sock|
-          peer_sock.write "REPLICATE FILE=#{file_name} CONTENT_LENGTH=#{filesize}"
-          peer_sock.write file_contents
+      unless reply.split()[1].split('=')[1] == "EMPTY"
+        peers = reply.split()[1].split('=')[1].split(',')
+        peers.each do |peer|
+          puts "Replcating #{file_name} to #{peer}"
+          ph = peer.split(':')[0]
+          pp = peer.split(':')[1].to_i
+          TCPSocket.new ph, pp do |peer_sock|
+            peer_sock.puts "REPLICATE FILE=#{file_name} CONTENT_LENGTH=#{filesize}"
+            peer_sock.write file_contents
+          end
         end
+      else
+        puts "No peers to replicate to"
       end
     end
 
@@ -159,8 +164,7 @@ module DistributedFileServer
           server.invalidate_peers! file_name
           server.replicate_to_peers! file_name
         
-        when "EXISTS?"
-          
+        when "EXISTS?"  
           if File.exists? local_file_name
             client.puts "STATUS=Exists"
           else

@@ -43,7 +43,7 @@ module DistributedFileServer
         return nil
       end
 
-      puts "Searching #{directory} for peers with file #{file_name}"
+      puts "Searching #{@@directory} for peers with file #{file_name}"
 
       sock = TCPSocket.new @@directory.split(":")[0], @@directory.split(":")[1].to_i
       sock.write "SEARCH FILE=#{file_name}"
@@ -52,6 +52,7 @@ module DistributedFileServer
       if header.split()[0] == 'ERROR'
         return nil
       end
+      sock.close
       header.split()[1].split('=')
     end
 
@@ -59,12 +60,29 @@ module DistributedFileServer
       unless @@directory
         return
       end
+
+      puts "Invalidating peers copy of #{file_name} via #{@@directory}"
+      sock = TCPSocket.new @@directory.split(":")[0], @@directory.split(":")[1].to_i
+      sock.write "INVALIDATE FILE=#{file_name}"
+      sock.close
     end
 
     def self.replicate_to_peers!(file_name)
       unless @@directory
         return
       end
+
+      puts "Replicating copy of #{file_name} to peers via #{@@directory}"
+      
+      sock = TCPSocket.new @@directory.split(":")[0], @@directory.split(":")[1].to_i
+      
+      local_file_name = File.join(@@temp_folder, Digest::MD5.hexdigest(file_name))
+      filesize = File.size local_file_name
+      file_contents = File.read local_file_name
+      
+      sock.write "REPLICATE FILE=#{file_name} CONTENT_LENGTH=#{filesize}"
+      sock.write file_contents
+      sock.close
     end
 
     def self.process_request()
@@ -137,7 +155,8 @@ module DistributedFileServer
           contents = client.read(content_length.to_i)
           File.open(local_file_name, "w") { |f| f.write contents }
 
-        puts "Request handled, done."  
+        puts "Request handled, done."
+        $stdout.flush  
         client.close
         end
       end 

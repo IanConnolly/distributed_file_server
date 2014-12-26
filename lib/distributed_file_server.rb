@@ -14,6 +14,8 @@ module DistributedFileServer
       @@directory = options[:directory]
       puts "Listening on port: #{options[:port]}"
 
+      self.announce! @@directory
+
       unless File.directory? @@temp_folder
         Dir.mkdir @@temp_folder
       end
@@ -25,6 +27,15 @@ module DistributedFileServer
       end
     end
 
+    def self.announce(directory)
+      sock = TCPSocket.new @@directory.split(":")[0], @@directory.split(":")[1].to_i
+      sock.write "PING"
+      header = sock.gets
+      
+      unless header.split()[0] == 'PONG'
+        @@directory = nil
+      end
+    end
 
     def self.get_file_from_peer(peer, file_name)
       sock = TCPSocket.new peer.split(":")[0], peer.split(":")[1].to_i

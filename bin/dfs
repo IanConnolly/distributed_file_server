@@ -12,8 +12,8 @@ opt_parser = OptionParser.new do |opts|
     options[:port] = port
   end
 
-  opts.on("--peers host1:port1,host2:port2,...,hostn:portn", Array, "List of peer nodes") do |peers|
-    options[:peers] = peers
+  opts.on("--directory host:port", String, "Directory server") do |dir|
+    options[:directory] = dir
   end
 end
 

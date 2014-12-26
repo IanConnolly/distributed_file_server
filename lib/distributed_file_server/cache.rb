@@ -1,13 +1,14 @@
 module DistributedFileServer
   class Cache
-    def initialize(max_size = 100)
+    def initialize(persistfolder, max_size = 100)
       @max_size = max_size
       @internal_hash = {}
+      @persistfolder = persistfolder
     end
 
     def fetch(key)
       found = true
-      value = @internal_hash.delete(key){ found = false }
+      value = @internal_hash.delete(key) { found = false }
       if found
         @internal_hash[key] = value
       else
@@ -17,7 +18,7 @@ module DistributedFileServer
 
     def include?(key)
       found = true
-      value = @internal_hash.delete(key){ found = false }
+      value = @internal_hash.delete(key) { found = false }
       if found
         @internal_hash[key] = value
         true
@@ -28,7 +29,7 @@ module DistributedFileServer
 
     def [](key)
       found = true
-      value = @internal_hash.delete(key){ found = false }
+      value = @internal_hash.delete(key) { found = false }
       if found
         @internal_hash[key] = value
       else
@@ -36,10 +37,11 @@ module DistributedFileServer
       end
     end
 
-    def []=(key,val)
+    def []=(key, val)
       @internal_hash.delete(key)
       @internal_hash[key] = val
-      @internal_hash.delete(@internal_hash.first[0]) if @internal_hash.length > @max_size
+      delkey, delval = @internal_hash.delete(@internal_hash.first[0]) if @internal_hash.length > @max_size
+      File.open(File.join(@persistfolder, delkey), "w") { |f| f.write delval }
       val
     end
 
@@ -53,8 +55,8 @@ module DistributedFileServer
       @internal_hash.to_a.reverse!
     end
 
-    def delete(k)
-      @internal_hash.delete(k)
+    def delete(key)
+      @internal_hash.delete(key)
     end
 
     def clear

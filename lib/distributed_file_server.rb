@@ -1,4 +1,5 @@
 require "distributed_file_server/version"
+require "distributed_file_server/cache"
 require 'socket'
 require 'threadpool'
 require 'digest/md5'

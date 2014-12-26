@@ -11,6 +11,9 @@ module DistributedFileServer
     def self.run(options)
       pool = Threadpool::Threadpool.new workers: 4
       server = TCPServer.new("localhost", options[:port])
+      @@host = "localhost"
+      @@port = options[:port]
+      @@name = options[:name]
       @@directory = options[:directory]
       puts "Listening on port: #{options[:port]}"
 
@@ -23,13 +26,13 @@ module DistributedFileServer
       loop do
         client = server.accept
         puts "Talking to client: #{client}"
-        pool.add_task(self.process_request, self, client, options[:peers])
+        pool.add_task(self.process_request, self, client)
       end
     end
 
     def self.announce(directory)
       sock = TCPSocket.new @@directory.split(":")[0], @@directory.split(":")[1].to_i
-      sock.write "PING"
+      sock.write "PING ME=#{@@name} HOST=#{@@host} PORT=#{@@port}"
       header = sock.gets
       
       unless header.split()[0] == 'PONG'
@@ -57,7 +60,7 @@ module DistributedFileServer
       puts "Searching #{@@directory} for peers with file #{file_name}"
 
       sock = TCPSocket.new @@directory.split(":")[0], @@directory.split(":")[1].to_i
-      sock.write "SEARCH FILE=#{file_name}"
+      sock.write "SEARCH ME=#{@@name} FILE=#{file_name}"
 
       header = sock.gets
       if header.split()[0] == 'ERROR'
@@ -74,7 +77,7 @@ module DistributedFileServer
 
       puts "Invalidating peers copy of #{file_name} via #{@@directory}"
       sock = TCPSocket.new @@directory.split(":")[0], @@directory.split(":")[1].to_i
-      sock.write "INVALIDATE FILE=#{file_name}"
+      sock.write "INVALIDATE ME=#{@@name} FILE=#{file_name}"
       sock.close
     end
 
@@ -91,13 +94,23 @@ module DistributedFileServer
       filesize = File.size local_file_name
       file_contents = File.read local_file_name
       
-      sock.write "REPLICATE FILE=#{file_name} CONTENT_LENGTH=#{filesize}"
-      sock.write file_contents
+      sock.write "REPLICATE ME=#{@@name} FILE=#{file_name}"
+      reply = sock.gets
       sock.close
+
+      peers = reply.split()[1].split('=')[1].split(',')
+      peers.each do |peer|
+        ph = peer.split(':')[0]
+        pp = peer.split(':')[1].to_i
+        TCPSocket.new ph, pp do |peer_sock|
+          peer_sock.write "REPLICATE FILE=#{file_name} CONTENT_LENGTH=#{filesize}"
+          peer_sock.write file_contents
+        end
+      end
     end
 
     def self.process_request()
-      Proc.new do |server, client, peers|
+      Proc.new do |server, client|
         puts "Processing request for: #{client}"
 
         request = client.gets.strip
@@ -108,6 +121,8 @@ module DistributedFileServer
 
         case command_word
         
+        when "PING"
+          client.write "PONG"
         when "REQUEST"
           unless File.exists? local_file_name
             puts "File #{file_name} doesn't exist locally, searching peers"

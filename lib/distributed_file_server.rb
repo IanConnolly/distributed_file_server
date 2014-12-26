@@ -1,6 +1,7 @@
 require "distributed_file_server/version"
 require 'socket'
 require 'threadpool'
+require 'digest/md5'
 
 module DistributedFileServer
   class Server
@@ -34,20 +35,22 @@ module DistributedFileServer
         return ""
       end
       content_length = header.split()[1].split('=')[1]
-      sock.recv(content_length.to_i)
+      sock.read(content_length.to_i)
     end
 
     def self.search_peers(file_name)
       unless @@directory
-        return ""
+        return nil
       end
+
+      puts "Searching #{directory} for peers with file #{file_name}"
 
       sock = TCPSocket.new @@directory.split(":")[0], @@directory.split(":")[1].to_i
       sock.write "SEARCH FILE=#{file_name}"
 
       header = sock.gets
       if header.split()[0] == 'ERROR'
-        return ""
+        return nil
       end
       header.split()[1].split('=')
     end
@@ -71,15 +74,17 @@ module DistributedFileServer
         request = client.gets.strip
         puts "Request: #{request}"
         command_word = request.split()[0]
+        file_name = request.split()[1].split('=')[1]
+        local_file_name = File.join(@@temp_folder, Digest::MD5.hexdigest(file_name))
 
         case command_word
         
         when "REQUEST"
-          file_name = request.split()[1].split('=')[1]
-          local_file_name = File.join(@@temp_folder, file_name.hash)
           unless File.exists? local_file_name
+            puts "File #{file_name} doesn't exist locally, searching peers"
             peer = server.search_peers file_name
             if peer
+              puts "Found peer: #{peer}"
               file_contents = server.get_file_from_peer peer, file_name
               File.open(local_file_name, "w") { |f| f.write file_contents }
             else
@@ -87,21 +92,23 @@ module DistributedFileServer
               client.puts "ERROR MESSAGE=FileNotFound"
             end 
           else
+            puts "File #{file_name} held locally"
             file_contents = File.read local_file_name
+            file_length = File.size local_file_name
             return_header = "FILE CONTENT_LENGTH=#{file_length}"
            
             puts "Sending: #{return_header} and file"
            
             client.puts return_header
-            client.puts file_contents
+            client.write file_contents
           end
 
         when "WRITE"
-          file_name = request.split()[1].split('=')[1]
-          size = request.split()[2].split('=')[1]
-          local_file_name = File.join(@@temp_folder, file_name.hash)
-          
-          file_contents = client.recv size
+          size = request.split()[2].split('=')[1].to_i
+          puts "Writing a file: #{file_name}, size: #{size}"
+
+          file_contents = client.read size
+          puts "File contents: #{file_contents}"
           File.open(local_file_name, "w") { |f| f.write file_contents }
           client.puts "WRITE STATUS=Okay"
 
@@ -109,8 +116,6 @@ module DistributedFileServer
           server.replicate_to_peers! file_name
         
         when "EXISTS?"
-          file_name = request.split()[1].split('=')[1]
-          local_file_name = File.join(@@temp_folder, file_name.hash)
           
           if File.exists? local_file_name
             client.puts "STATUS=Exists"
@@ -123,18 +128,16 @@ module DistributedFileServer
             end
           end
         when "INVALIDATE"
-          file_name = request.split()[1].split('=')[1]
-          local_file_name = File.join(@@temp_folder, file_name.hash)
           if File.exists? local_file_name
             File.delete local_file_name
           end
           client.puts "INVALIDATED"
         when "REPLICATE"
-          file_name = request.split()[1].split('=')[1]
           content_length = request.split()[2].split('=')[1]
-          contents = client.recv(content_length.to_i)
-          local_file_name = File.join(@@temp_folder, file_name.hash)
+          contents = client.read(content_length.to_i)
           File.open(local_file_name, "w") { |f| f.write contents }
+
+        puts "Request handled, done."  
         client.close
         end
       end 

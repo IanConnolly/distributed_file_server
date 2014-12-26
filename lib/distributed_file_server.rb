@@ -17,6 +17,7 @@ module DistributedFileServer
       @@name = options[:name]
       @@directory = options[:directory]
       @@temp_folder = options[:folder]
+      @@cache = DistributedFileServer::Cache.new @@temp_folder
       puts "Listening on port: #{options[:port]}"
 
       self.announce! @@directory
@@ -137,7 +138,27 @@ module DistributedFileServer
         when "PING"
           client.write "PONG"
         when "REQUEST"
-          unless File.exists? local_file_name
+          if @@cache.include? local_file_name
+            puts "File #{file_name} held in cache"
+            file_contents = @@cache[local_file_name]
+            file_length = file_contents.bytesize
+            return_header = "FILE CONTENT_LENGTH=#{file_length}"
+
+            puts "Sending: #{return_header} and file"
+           
+            client.puts return_header
+            client.write file_contents
+          elsif File.exists? local_file_name
+            puts "File #{file_name} held locally"
+            file_contents = File.read local_file_name
+            file_length = File.size local_file_name
+            return_header = "FILE CONTENT_LENGTH=#{file_length}"
+           
+            puts "Sending: #{return_header} and file"
+           
+            client.puts return_header
+            client.write file_contents
+          else
             puts "File #{file_name} doesn't exist locally, searching peers"
             peer = server.search_peers file_name
             if peer
@@ -148,16 +169,6 @@ module DistributedFileServer
               puts "#{file_name} not found"
               client.puts "ERROR MESSAGE=FileNotFound"
             end 
-          else
-            puts "File #{file_name} held locally"
-            file_contents = File.read local_file_name
-            file_length = File.size local_file_name
-            return_header = "FILE CONTENT_LENGTH=#{file_length}"
-           
-            puts "Sending: #{return_header} and file"
-           
-            client.puts return_header
-            client.write file_contents
           end
 
         when "WRITE"
@@ -169,11 +180,14 @@ module DistributedFileServer
           File.open(local_file_name, "w") { |f| f.write file_contents }
           client.puts "WRITE STATUS=Okay"
 
+          @@cache[local_file_name] = file_contents
           server.invalidate_peers! file_name
           server.replicate_to_peers! file_name
         
         when "EXISTS?"  
           if File.exists? local_file_name
+            client.puts "STATUS=Exists"
+          elsif @@cache.include? local_file_name
             client.puts "STATUS=Exists"
           else
             peer = server.search_peers file_name
@@ -184,6 +198,8 @@ module DistributedFileServer
             end
           end
         when "INVALIDATE"
+          @@cache.delete local_file_name
+
           if File.exists? local_file_name
             File.delete local_file_name
           end
@@ -193,6 +209,7 @@ module DistributedFileServer
           content_length = request.split()[2].split('=')[1]
           contents = client.read(content_length.to_i)
           File.open(local_file_name, "w") { |f| f.write contents }
+          @@cache[local_file_name] = contents
           self.register file_name
 
         puts "Request handled, done."
